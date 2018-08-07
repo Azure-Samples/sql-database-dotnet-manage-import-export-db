@@ -1,10 +1,10 @@
 ---
 services: Sql
-platforms: .Net
+platforms: dotnet
 author: milismsft
 ---
 
-# Getting Started with Sql - Manage Sql Import Export Database - in .Net #
+# Getting started with importing and exporting SQL databases in C# #
 
           Azure SQL sample for managing import/export SQL Database -
            - Create a SQL Server with one database from a pre-existing sample.
@@ -18,7 +18,7 @@ author: milismsft
 
 To run this sample:
 
-Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an auth file. See [how to create an auth file](https://github.com/Azure/azure-sdk-for-net/blob/Fluent/AUTH.md).
+Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an auth file. See [how to create an auth file](https://github.com/Azure/azure-libraries-for-java/blob/master/AUTH.md).
 
     git clone https://github.com/Azure-Samples/sql-database-dotnet-manage-import-export-db.git
 
