@@ -7,6 +7,7 @@ products:
 extensions:
 - services: Sql
 - platforms: dotnet
+description: "Azure SQL sample for managing import/export SQL Database."
 ---
 
 # Getting started with importing and exporting SQL databases in C# #
