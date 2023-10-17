@@ -7,6 +7,7 @@ using Azure.Identity;
 using Azure.ResourceManager.Samples.Common;
 using Azure.ResourceManager.Resources;
 using Azure.ResourceManager;
+using Azure.ResourceManager.Models;
 using Azure.ResourceManager.Sql;
 using Azure.ResourceManager.Sql.Models;
 using Azure.ResourceManager.Storage.Models;
@@ -14,8 +15,6 @@ using Azure.ResourceManager.Storage;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System;
-using Azure.ResourceManager.Models;
-using System.Runtime.InteropServices;
 
 namespace ManageSqlImportExportDatabase
 {
@@ -51,7 +50,7 @@ namespace ManageSqlImportExportDatabase
                 string sqlServerName = Utilities.CreateRandomName("sqlserver");
                 Utilities.Log("Creating SQL Server...");
                 string sqlAdmin = "sqladmin" + sqlServerName;
-                string sqlAdminPwd = "azure12345QWE!";
+                string sqlAdminPwd = Utilities.CreatePassword();
                 SqlServerData sqlData = new SqlServerData(AzureLocation.EastUS)
                 {
                     AdministratorLogin = sqlAdmin,
@@ -64,8 +63,8 @@ namespace ManageSqlImportExportDatabase
                 string firewallRuleName = Utilities.CreateRandomName("firewallrule-");
                 SqlFirewallRuleData firewallRuleData = new SqlFirewallRuleData()
                 {
-                    StartIPAddress = "167.220.0.0",
-                    EndIPAddress = "167.220.255.255"
+                    StartIPAddress = "10.0.0.1",
+                    EndIPAddress = "10.0.0.10"
                 };
                 await sqlServer.GetSqlFirewallRules().CreateOrUpdateAsync(WaitUntil.Completed, firewallRuleName, firewallRuleData);
 
@@ -99,48 +98,23 @@ namespace ManageSqlImportExportDatabase
                 {
                     storageAccountKey.Add(item.Value);
                 }
-                Utilities.Log($"{storageAccountKey[0]} , {storageAccountKey[1]}");
-                string primaryEndpoint = $"https://{storageAccount.Data.Name}.blob.core.windows.net/{storageBlob.Data.Name}";
-                Utilities.Log(primaryEndpoint);
-                //var policyName = BlobAuditingPolicyName.Default;
-                //var policyData = new ExtendedServerBlobAuditingPolicyData()
-                //{
-                //    State = BlobAuditingPolicyState.Enabled,
-                //    StorageEndpoint = primaryEndpoint,
-                //    StorageAccountAccessKey = storageAccountKey[0]
-                //};
-                //await sqlServer.GetExtendedServerBlobAuditingPolicies().CreateOrUpdateAsync(WaitUntil.Completed, policyName, policyData);
-                Utilities.Log("Exporting a database from a SQL server created above to a new storage account within the same resource group.");
-                DatabaseExportDefinition exporteData = new DatabaseExportDefinition(StorageKeyType.StorageAccessKey, storageAccountKey[0].Trim(), new(primaryEndpoint), sqlAdmin, sqlAdminPwd)
-                {
-                    AuthenticationType = "SQL Server",
-                    NetworkIsolation = new NetworkIsolationSettings()
-                    {
-                        SqlServerResourceId = sqlServer.Id,
-                        StorageAccountResourceId = storageAccount.Data.Id
-                    }
-                };
+                string fileName = "dbfromsample.bacpac";
+                string primaryEndpoint = $"https://{storageAccount.Data.Name}.blob.core.windows.net/{storageBlob.Data.Name}/{fileName}";
+                Utilities.Log($"Created export url : {primaryEndpoint}");
+
+                Utilities.Log("Exporting a database from a SQL server created above to a new storage account within the same resource group...");
+                var exporteData = new DatabaseExportDefinition(
+                    StorageKeyType.StorageAccessKey,
+                    storageAccountKey[0].Trim(),
+                    new(primaryEndpoint),
+                    sqlAdmin,
+                    sqlAdminPwd
+                    );
+                //When exporting or importing for the first time, you need to enter the portal and manually click Allow Azure services and resources to access this server.
                 var exportedDB = await dbFromSample.ExportAsync(WaitUntil.Completed, exporteData);
                 Utilities.Log($"Export success with name: {exportedDB.Value.Name}");
-
                 // ============================================================
                 // Import a database within a new elastic pool from a storage account container created above.
-                Utilities.Log("Importing a database within a new elastic pool from a storage account container created above.");
-
-                string dbFromImportName = Utilities.CreateRandomName("db-from-import1");
-                SqlDatabaseData dbFromImportData = new SqlDatabaseData(AzureLocation.EastUS) { };
-                var dbFromImport = (await sqlServer.GetSqlDatabases().CreateOrUpdateAsync(WaitUntil.Completed, dbFromImportName, dbFromImportData)).Value;
-                ImportExistingDatabaseDefinition importData = new ImportExistingDatabaseDefinition(StorageKeyType.StorageAccessKey, storageAccountKey[0], new(primaryEndpoint), sqlAdmin, sqlAdminPwd)
-                {
-                    AuthenticationType = "Sql",
-                    NetworkIsolation = new NetworkIsolationSettings()
-                    {
-                        SqlServerResourceId = sqlServer.Id,
-                        StorageAccountResourceId = storageAccount.Id
-                    }
-                };
-                var importDB = await dbFromSample.ImportAsync(WaitUntil.Completed, importData);
-
                 Utilities.Log("Creating a new elastic pool...");
                 string elasticPoolName = Utilities.CreateRandomName("epi");
                 var elasticPooldata = new ElasticPoolData(AzureLocation.EastUS)
@@ -148,7 +122,23 @@ namespace ManageSqlImportExportDatabase
                     Sku = new SqlSku("StandardPool")
                 };
                 var elasticPool = (await sqlServer.GetElasticPools().CreateOrUpdateAsync(WaitUntil.Completed, elasticPoolName, elasticPooldata)).Value;
-                Utilities.Log($"Importing a database with name: {dbFromImport.Data.Name}");
+
+                Utilities.Log("Importing a database within a new elastic pool from a storage account container created above....");
+
+                string dbFromImportName = Utilities.CreateRandomName("db-from-import1");
+                var importData = new DatabaseImportDefinition(StorageKeyType.StorageAccessKey, storageAccountKey[0], new(primaryEndpoint), sqlAdmin, sqlAdminPwd)
+                {
+                    DatabaseName = dbFromImportName,
+                    Edition = "Basic"
+                };
+                var importDB = (await sqlServer.ImportDatabaseAsync(WaitUntil.Completed, importData)).Value;
+                var dbFromImport = (await sqlServer.GetSqlDatabaseAsync(dbFromImportName)).Value;
+                var dbFromData = new SqlDatabasePatch()
+                {
+                    ElasticPoolId = elasticPool.Data.Id
+                };
+                dbFromImport = (await dbFromImport.UpdateAsync(WaitUntil.Completed,dbFromData)).Value;
+                Utilities.Log($"Import success with name: {importDB.Name}");
 
                 // Delete the database.
                 Utilities.Log("Deleting a database");
@@ -165,12 +155,15 @@ namespace ManageSqlImportExportDatabase
 
                 // ============================================================
                 // Import data from a BACPAC to an empty database within an elastic pool.
-                Utilities.Log("Importing data from a BACPAC to an empty database within an elastic pool.");
+                Utilities.Log("Importing data from a BACPAC to an empty database within an elastic pool....");
 
-                ImportExistingDatabaseDefinition importEmptyData = new ImportExistingDatabaseDefinition(StorageKeyType.StorageAccessKey, storageAccountKey[0], new(primaryEndpoint), sqlAdmin, sqlAdminPwd)
-                {
-                    AuthenticationType = "Sql"
-                };
+                var importEmptyData = new ImportExistingDatabaseDefinition(
+                    StorageKeyType.StorageAccessKey,
+                    storageAccountKey[0], 
+                    new(primaryEndpoint), 
+                    sqlAdmin, 
+                    sqlAdminPwd
+                    );
                 var importEmpty = (await dbEmpty.ImportAsync(WaitUntil.Completed,importEmptyData)).Value;
                 Utilities.Log($"Importing data with name : {importEmpty.Name}");
 
